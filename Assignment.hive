@@ -1,0 +1,411 @@
+﻿------------------------------------------------------------------------------------------------------------------
+--                             Data Ingestion and Processing - Case Study
+------------------------------------------------------------------------------------------------------------------
+
+--Problem Statement:
+------------------
+-- The New York City Taxi & Limousine Commission (TLC) has provided a dataset of trips 
+--made by the taxis in the New York City. The detailed trip-level data is more than just 
+--a vast list of taxi pickup and drop off coordinates.  
+
+ 
+--The purpose of this dataset is to get a better understanding of the
+--taxi system so that the city of New York can improve the efficiency of in-city commutes.
+--Several exploratory questions can be asked about the travelling experience for passengers.
+
+-- IMPORTANT: BEFORE CREATING ANY TABLE, MAKE SURE YOU RUN THIS COMMAND
+ADD JAR /opt/cloudera/parcels/CDH/lib/hive/lib/hive-hcatalog-core-1.1.0-cdh5.11.2.jar;
+
+--DROP THE TABLE IF IT IS ALREADY EXISTING
+DROP TABLE taxi_table
+
+-- CREATE EXTERNAL TABLE
+create external table if not exists taxi_table(VendorID string, tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp, passenger_count int, trip_distance double, RatecodeID int, store_and_fwd_flag
+ string,PULocationID int,DOLocationID int,payment_type string,fare_amount double,
+ extra double,mta_tax double,tip_amount double,tolls_amount double,improvement_surcharge double,total_amount double)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ','
+STORED AS TEXTFILE
+location '/common_folder/nyc_taxi_data/'
+tblproperties ("skip.header.line.count"="1");
+
+SELECT * FROM taxi_table
+
+ 
+---------------------------------------------------------------------------------------------------------------------------------------
+-- Basic Data Quality Checks
+---------------------------------------------------------------------------------------------------------------------------------------
+
+-- 1. How many records has each TPEP provider provided? Write a query that summarises the number of records of each provider.
+select VendorID,count(*) as number_of_records  from taxi_table group by VendorID
+
+--Comment: There are 2 vendors. vendor 1 (creative mobile technologies, LLC) (creative mobile tech, LLC) has provided around 527386 records and vendor 2 (verifone INC)  (verifone INC)has provided around 647183 records.
+----------------------------------------------------------------------------------------------------------------------------
+-- 2.The data provided is for months November and December only. Check whether the data is consistent, and if not, identify the data quality issues. Mention all data quality issues in comments.
+
+
+select  VendorID,count(*) as number_of_records  from taxi_table
+where month(from_unixtime(unix_timestamp(tpep_pickup_datetime))) not in (11,12)
+and month(from_unixtime(unix_timestamp(tpep_dropoff_datetime))) not in (11,12)
+group by VendorID
+
+-- Comment:Thus the result show that the vendor 2 (verifone INC)  has around 8 invalid records which does not belong to november or december.
+-----------------------------------------------------------------------------------------------------------------------------
+
+-- 3.You might have encountered unusual or erroneous rows in the dataset.
+-- Can you conclude which vendor is doing a bad job in providing the records using different columns of the dataset?
+-- Summarise your conclusions based on every column where these errors are present.
+-- For example,  There are unusual passenger count, i.e. 0 which is unusual.
+-- Invalid extra values:
+-----------------------
+select count(*) from taxi_table where extra not in(0,0.5,1)
+-- Comment: there are nearly 4856 records with invalid extra values.
+
+-- Vendor who does the bad job in providing details:
+----------------------------------------------------
+select vendorid,count(*) as no_of_invalid_records from taxi_table where extra not in (0,0.5,1) group by vendorid
+-- Comment: the vendor 1 (creative mobile technologies, LLC)  has provided 1823 invalid records and vendor 2 (verifone INC)  has provided 3033 invalid records so the vendor 2 (verifone INC)  is doing bad job in providing the details.
+
+-- MTA_TAX:
+-----------
+select count(*) from taxi_table where MTA_Tax not in(0,0.5)
+-- Comment:there are nearly 548 records with invalid MTA_TAX values.
+
+select * from taxi_table where MTA_Tax not in(0,0.5)
+
+select vendorid,count(*) as no_of_invalid_records from taxi_table where MTA_Tax not in (0,0.5) group by vendorid
+-- Comment: the vendor 1 (creative mobile technologies, LLC)  has provided 1 invalid record and vendor 2 (verifone INC)  has provided 547 invalid records so the vendor 2 (verifone INC)  is doing bad job in providing the details.
+
+--Fare_amount, tip_amount, toll_amount, total_amount :
+------------------------------------------------------
+select count(*) from taxi_table where Fare_amount <0 or tip_amount  <0 or tolls_amount  <0 or total_amount <0
+-- Comment: there are nearly 558 records with invalid amount values.
+
+select * from taxi_table where Fare_amount <0 or tip_amount  <0 or tolls_amount  <0 or total_amount <0
+
+select vendorid,count(*) as no_of_invalid_records from taxi_table where Fare_amount <0 or tip_amount  <0 or tolls_amount  <0 or total_amount <0  group by vendorid
+-- Comment: the vendor 1 (creative mobile technologies, LLC)  has provided no invalid record and vendor 2 (verifone INC)  has provided 558 invalid records so the vendor 2 (verifone INC)  is doing bad job in providing the details.
+
+--improvement_surcharge:
+---------------------
+select count(*) from taxi_table where improvement_surcharge!= 0.3
+-- Comment: there are nearly 849 records with invalid improvement_surcharge values.
+
+select * from taxi_table where improvement_surcharge!= 0.3
+
+select vendorid,count(*) as no_of_invalid_records from taxi_table where improvement_surcharge!= 0.3 group by vendorid
+-- the vendor 1 (creative mobile technologies, LLC)  has provided 61 invalid record and vendor 2 (verifone INC)  has provided 788 invalid records so the vendor 2 (verifone INC)  is doing bad job in providing the details.
+
+-- payment_type:
+----------------
+select count(*) from taxi_table where Payment_type <0 or Payment_type >6
+-- there are no records with invalid payment_type values.
+
+-- Store_and_fwd_flag:
+----------------------
+select count(*) from taxi_table where Store_and_fwd_flag not in ('Y','N')
+-- there are no records with invalid Store_and_fwd_flag values.
+
+-- Passenger_count:
+-------------------
+select count(*) from taxi_table where Passenger_count <0
+-- there are no records with invalid Passenger_count
+
+-----------------------------------------------------------------------------------------------------------------
+--Max and min values of all the data columns
+
+select max(VendorID ) max_VendorID , min(VendorID ) min_VendorID ,
+max(tpep_pickup_datetime ) max_tpep_pickup_datetime , min(tpep_pickup_datetime ) min_tpep_pickup_datetime ,
+max(tpep_dropoff_datetime ) max_tpep_dropoff_datetime , min(tpep_dropoff_datetime ) min_tpep_dropoff_datetime ,
+max(passenger_count ) max_passenger_count , min(passenger_count ) min_passenger_count ,
+max(trip_distance ) max_trip_distance , min(trip_distance ) min_trip_distance ,
+max(RatecodeID ) max_RatecodeID , min(RatecodeID ) min_RatecodeID ,
+max(store_and_fwd_flag ) max_store_and_fwd_flag , min(store_and_fwd_flag ) min_store_and_fwd_flag ,
+max(PULocationID ) max_PULocationID , min(PULocationID ) min_PULocationID ,
+max(DOLocationID ) max_DOLocationID , min(DOLocationID ) min_DOLocationID ,
+max(payment_type ) max_payment_type , min(payment_type ) min_payment_type ,
+max(fare_amount ) max_fare_amount , min(fare_amount ) min_fare_amount ,
+max(extra ) max_extra , min(extra ) min_extra ,
+max(mta_tax ) max_mta_tax , min(mta_tax ) min_mta_tax ,
+max(tip_amount ) max_tip_amount , min(tip_amount ) min_tip_amount ,
+max(tolls_amount ) max_tolls_amount , min(tolls_amount ) min_tolls_amount ,
+max(improvement_surcharge ) max_improvement_surcharge , min(improvement_surcharge ) min_improvement_surcharge ,
+max(total_amount ) max_total_amount , min(total_amount ) min_total_amount
+from taxi_table;
+
+-- passenger_count:
+-------------------
+Select passenger_count, count(*) as no_of_passengers
+from taxi_table
+group by passenger_count;
+
+-- Vendor wise passenger_count:
+-------------------------------
+select vendorid,passenger_count, count(*)
+from taxi_table
+group by vendorid,passenger_count;
+
+-- Comment: Since the passenger count is a driver entered data ,he might have entered 0 passengers by mistake,
+--without passengers, the ride becomes invalid. There are around 6824 passenger count as 0
+-- out of which vendorid 1 has given 6813 entries as 0.
+
+--Vendorwise trip_distance:
+---------------------------
+select vendorid,count(*) from taxi_table where trip_distance<=0 group by vendorid;
+
+--Comment: Both the drivers have entered 0 distance travelled more or less equally.
+
+--no_of_extra:
+--------------
+Select extra, count(*) as no_of_extra
+from taxi_table
+group by extra;
+
+-- MTA_Tax Count:
+------------------
+select MTA_tax, count(*) as no_of_MTA
+from taxi_table
+group by MTA_tax;
+
+-- total_amount Count:
+----------------------
+select total_amount, count(*) as no_of_count
+from taxi_table
+group by total_amount;
+
+-- ratecodeid Count:
+------------------
+select  ratecodeid,count(*) from taxi_table
+group by ratecodeid;
+
+-- Comment:
+-- 1-6 are valid id as per the metadata, and the 99 value based 9 records are incorrect.
+-- we will ignore the 9 records
+
+select vendorid , count(*)
+from  taxi_table
+where ratecodeid=99
+group by vendorid;
+
+-- tip_amount:
+--------------
+-- Data dictionary - Tip amount – This field is automatically populated for credit card tips.
+-- Cash tips are not included.
+--negative values
+select count(*) from taxi_table where tip_amount <0;
+
+-- Payment_type and tip_amount:
+-------------------------------
+-- Let's check if their are non credit card based tips
+select count(*) from taxi_table where Payment_type!=1 and tip_amount>0;
+-- 17 records have payment mode other than credit and still have tip amount greater than 0
+
+
+select vendorid,count(*) from taxi_table
+where Payment_type!=1 and tip_amount>0  group by vendorid;
+
+--Comment: Vendorid 1 has got the tip amount not belonging to credit card payment.
+
+-- store_and_fwd_flag
+select  store_and_fwd_flag,count(*) from taxi_table
+group by store_and_fwd_flag;
+
+--Payment_type
+select vendorid, payment_type,count(*) from taxi_table
+group by vendorid, payment_type;
+
+--Comment: There was no unknown and void trip for both 1 and 2. The credit card payment seems to be high in vendorid 2 than 1.
+-- It is also found that there has been dispute in payments with vendorid 1 than 2.
+
+
+-- total_amount
+--Data Dictionary:-  The total amount charged to passengers. Does not include cash tips
+-- can be negative and has similar high value as fare_amount, we will check this with similar queries
+
+select count(*) from taxi_table
+where total_amount<0;
+-- 558 can be ignored
+
+-- vendor wise total_amount:
+----------------------------
+select vendorid,count(*) from taxi_table
+where total_amount>1000 or total_amount<0
+group by vendorid;
+
+-- 2 558
+-- Group 2 dominate in terms of giving data which is void.
+
+--You might have encountered unusual or erroneous rows in the dataset.
+--Can you conclude which vendor is doing a bad job in providing the records using different columns of the dataset?
+--Summarise your conclusions based on every column where these errors are present.
+
+--------------------------------------------------------------------------------------------------------
+-- Conclusion:
+--------------------------------------------------------------------------------------------------------
+--Comment: For the taxi data, it's mostly vendor 2 (verifone INC)  that is providing faulty data.
+
+-- invalid values for 1.total_amount , 2.improvement_surcharge,3.tolls_amount, 4.tip_amount,mta_tax,
+--  5.fare_amount,6.passenger_count, 7.pickup and 8.drop off time
+
+--------------------------------------------------------------------------------------------------------
+-- For the column 'extra', both vendor seems to be equally at fault
+
+-- vendor 1 (creative mobile technologies, LLC)  for has few tip amount where the payment mode is not credit card
+
+-- From the above analysis, we can conclude that vendor 2 (verifone INC) -  VeriFone Inc. has done a bad job in providing the details.
+----------------------------------------------------------------------------------------------------
+
+-- ORC PARTITION THE DATA :  
+--------------------------
+-- IMPORTANT: BEFORE PARTITIONING ANY TABLE, MAKE SURE YOU RUN THESE COMMANDS
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+-- First drop the table
+drop table taxi_partitioned;
+
+-- Then create external table
+create external table if not exists taxi_partitioned
+(
+VendorID string, tpep_pickup_datetime timestamp,
+tpep_dropoff_datetime timestamp, passenger_count int, trip_distance double, RatecodeID int, store_and_fwd_flag
+ string,PULocationID int,DOLocationID int,payment_type string,fare_amount double,
+ extra double,mta_tax double,tip_amount double,tolls_amount double,improvement_surcharge double,total_amount double)
+partitioned by (pickupyear int,pickupmonth int ,dropyear int,dropmonth int)
+location '/user/hive/warehouse/Assignment_NYTAXI_2/';
+
+select * from taxi_partitioned;
+
+--Now insert the clean data into the partitioned table
+insert overwrite table taxi_partitioned partition(pickupyear ,pickupmonth  ,dropyear ,dropmonth )
+select * ,
+month(from_unixtime(unix_timestamp(tpep_pickup_datetime))) int,year(from_unixtime(unix_timestamp(tpep_pickup_datetime))) int,
+month(from_unixtime(unix_timestamp(tpep_dropoff_datetime))) int,year(from_unixtime(unix_timestamp(tpep_dropoff_datetime))) int
+from taxi_table
+where
+(month(from_unixtime(unix_timestamp(tpep_pickup_datetime))) in (11,12)
+or month(from_unixtime(unix_timestamp(tpep_dropoff_datetime))) in (11,12))
+ 
+ and (year(from_unixtime(unix_timestamp(tpep_pickup_datetime))) =2017
+ and year(from_unixtime(unix_timestamp(tpep_dropoff_datetime))) in(2017,2018  ))
+
+ and extra in (0,0.5,1)
+ and  MTA_Tax in (0,0.5)
+ and Fare_amount >0 and tip_amount  >0 and tolls_amount  >0 and total_amount >0
+ and (improvement_surcharge = 0.3 or improvement_surcharge = 0)
+
+select count(*) from taxi_partitioned;
+
+-- after cleaning the data, we get around 42988 records.
+
+----------------------------------------------------------------------------------------------------
+--Analysis 1
+----------------------------------------------------------------------------------------------------
+
+-- 1 .Compare the overall average fare per trip for November and December.
+
+select month(from_unixtime(unix_timestamp(tpep_pickup_datetime))),round(avg(total_amount),2) as avg_total_amount,round(avg(fare_amount),2) as avg_fare_amount
+from taxi_partitioned group by month(from_unixtime(unix_timestamp(tpep_pickup_datetime)));
+
+--Comment:The overall fair per trip for the month of november and december are 40.65 and 40.73 respectively.
+--Month decemeber shows a slight increase in its fare rare. However, the total amount is more signifying
+--the extra charges.
+
+-- 2. Explore the ‘number of passengers per trip’ - how many trips are made by each level of ‘Passenger_count’?
+-- Do most people travel solo or with other people?
+
+select passenger_count, round((count(*)*100/42988),4)  as percentage_count
+from taxi_partitioned
+group by passenger_count
+order by percentage_count desc;
+
+--Comment: Around 69% travel solo.
+-- 2 passenegers rate is around 16% and the rest fall below 5%.
+
+-- 3.Which is the most preferred mode of payment?
+
+select payment_type,round((count(*)*100/42988),4) as percentage_count
+from taxi_partitioned group by payment_type
+order by percentage_count desc;
+
+--Comment: The most prefered mode is credit card since around 99.99% of the payment is done through credit card.
+
+--4.What is the average tip paid per trip?
+-- Compare the average tip with the 25th, 50th and 75th percentiles and
+-- comment whether the ‘average tip’ is a representative statistic (of the central tendency) of ‘tip amount paid’.
+
+select round(avg(tip_amount),2)  
+from taxi_partitioned;
+
+--Comment : The average tip amount is 9.18
+
+select percentile_approx(tip_amount,array(0.25,0.40,0.45,0.50,0.60,0.65,0.75))
+from taxi_partitioned;
+
+--Comment: The 25th percentile is 6.80 while the 50th percentile is 8.70.
+--The central tendency is not a representative of the average tip as it skewed towards a higher value.
+
+-- 5. Explore the ‘Extra’ (charge) variable - what fraction of total trips have an extra charge is levied?
+
+select extra,round((count(*)*100/42988),4) as percentage_count
+from (
+select case when extra>0 then 1 else 0 end  extra
+from taxi_partitioned) T
+group by extra
+order by percentage_count desc;
+
+--Comment: The distribution is uneven with 71.02% - no extra charges applied; 28.98% - extra charges applied.
+
+---------------------------------------------------------------------------------------------------------------
+-- Analysis-II
+---------------------------------------------------------------------------------------------------------------
+
+--1. What is the correlation between the number of passengers on any given trip, and the tip paid per trip? Do multiple travellers tip more compared to solo travellers? Hint: Use CORR(Col_1, Col_2)
+
+select corr(Passenger_count,Tip_amount) from taxi_partitioned
+
+--Comment: we can see the correlation(-0.0042039) to be in negative side, which suggests that more the number of passengers are, the less is the tip amount.
+
+--2. Segregate the data into five segments of ‘tip paid’: [0-5), [5-10), [10-15) , [15-20) and >=20.
+-- Calculate the percentage share of each bucket (i.e. the fraction of trips falling in each bucket).
+with total as(select count(*) as total_number from taxi_partitioned)
+select tip_bucket,(fraction_of_trips/total.total_number)*100  as Percentage_Share_of_each_bucket from
+(select count(*) as fraction_of_trips,tip_bucket from
+(select  *,case when Tip_amount >=0 and Tip_amount <5 then 'less_than_5'
+ when Tip_amount >=5 and Tip_amount <10 then 'less_than_10'
+ when Tip_amount >=10 and Tip_amount <15 then 'less_than_15'
+ when Tip_amount >=15 and Tip_amount <20 then 'less_than_20'
+ when Tip_amount >=20  then 'greater_than_20' end as tip_bucket from taxi_partitioned) as a group by tip_bucket ) as b
+, total
+
+--3. Which month has a greater average ‘speed’ - November or December? Note that the variable ‘speed’ will have to be derived from other metrics.
+--Hint: You have columns for distance and time.
+select avg(round((trip_distance *1609.344)/(unix_timestamp(tpep_dropoff_datetime)-unix_timestamp(tpep_pickup_datetime)),2)) as Average_speed,
+month(from_unixtime(unix_timestamp(tpep_pickup_datetime))) as month
+from taxi_partitioned
+group by  month(from_unixtime(unix_timestamp(tpep_pickup_datetime)))
+-- Comment: The results show that november has average speed of november is 9.63 m/s and december is 9.86 m/s.
+-- We can observe from the results that the average speed in the month of december is greater than november.
+
+-- 4. Analyse the average speed of the most happening days of the year,
+-- i.e. 31st December (New year’s eve) and 25th December (Christmas) and compare it with the overall average.
+ 
+with t_overall_avg as (
+select round(avg((trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600))),2) as avg_speed_overall
+from taxi_partitioned
+),
+t_avg_christmas as (
+select round(avg((trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600))),2) as avg_speed_christmas
+from taxi_partitioned
+where month(tpep_pickup_datetime) = 12 and day(tpep_pickup_datetime) = 25
+),
+t_avg_newyeareve as (
+select round(avg((trip_distance/((unix_timestamp(tpep_dropoff_datetime) - unix_timestamp(tpep_pickup_datetime))/3600))),2) as avg_speed_newyeareve
+from taxi_partitioned
+where month(tpep_pickup_datetime) = 12 and day(tpep_pickup_datetime) = 31
+)
+select *
+from t_overall_avg, t_avg_christmas, t_avg_newyeareve  
+
+--Comment:We can see that average speed of the most happening days of the year are higher than the overall average.
+-- with the highest average speed during christmas.
